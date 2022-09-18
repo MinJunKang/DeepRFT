@@ -1,4 +1,5 @@
 import os
+import pdb
 import argparse
 import torch.nn as nn
 import torch
@@ -15,10 +16,10 @@ import cv2
 
 
 parser = argparse.ArgumentParser(description='Image Deblurring')
-parser.add_argument('--input_dir', default='./Datasets/GoPro/test/blur', type=str, help='Directory of validation images')
+parser.add_argument('--input_dir', default='./images/example', type=str, help='Directory of validation images')
 parser.add_argument('--target_dir', default='./Datasets/GoPro/test/sharp', type=str, help='Directory of validation images')
-parser.add_argument('--output_dir', default='./results/DeepRFT/GoPro', type=str, help='Directory of validation images')
-parser.add_argument('--weights', default='./checkpoints/DeepRFT/model_GoPro.pth', type=str, help='Path to weights')
+parser.add_argument('--output_dir', default='./images/output2', type=str, help='Directory of validation images')
+parser.add_argument('--weights', default='./DeepRFT/model_DPDD.pth', type=str, help='Path to weights')
 parser.add_argument('--get_psnr', default=False, type=bool, help='PSNR')
 parser.add_argument('--gpus', default='0', type=str, help='CUDA_VISIBLE_DEVICES')
 parser.add_argument('--save_result', default=False, type=bool, help='save result')
@@ -57,12 +58,28 @@ with torch.no_grad():
 
         torch.cuda.ipc_collect()
         torch.cuda.empty_cache()
+        res_h, res_w = 1000, 1500
         input_    = data_test[0].cuda()
+        # _, _, H, W = input_.shape
+        # input_ = input_[:, :, H//2-res_h//2:H//2+res_h//2, W//2-res_w//2:W//2+res_w//2]
         filenames = data_test[1]
         _, _, Hx, Wx = input_.shape
         filenames = data_test[1]
         input_re, batch_list = window_partitionx(input_, win)
-        restored = model_restoration(input_re)
+        
+        div = 4
+        step = input_re.size(0)//div
+        outputs = []
+        for t in range(div):
+            s = t*step
+            if t == div-1:
+                div_input = input_re[s:]
+            else:
+                div_input = input_re[s:s+step]
+            outputs.append(model_restoration(div_input))
+            if True:
+                torch.cuda.empty_cache()
+        restored = torch.cat(outputs, dim=0)
         restored = window_reversex(restored, win, Hx, Wx, batch_list)
 
         restored = torch.clamp(restored, 0, 1)
@@ -70,6 +87,7 @@ with torch.no_grad():
         for batch in range(len(restored)):
             restored_img = restored[batch]
             restored_img = img_as_ubyte(restored[batch])
+            restored_img = cv2.bilateralFilter(restored_img, -1, 100, 10)
             if get_psnr:
                 rgb_gt = cv2.imread(os.path.join(args.target_dir, filenames[batch]+'.png'))
                 rgb_gt = cv2.cvtColor(rgb_gt, cv2.COLOR_BGR2RGB)

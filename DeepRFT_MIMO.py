@@ -1,7 +1,6 @@
 from layers import *
 
 
-
 class EBlock(nn.Module):
     def __init__(self, out_channel, num_res=8, ResBlock=ResBlock):
         super(EBlock, self).__init__()
